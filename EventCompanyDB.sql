@@ -12,7 +12,7 @@ End
 	Print 'EventCompanyDB Created'
 Go
 USE EventCompanyDB
-GO
+GO -- Database was checked if existed, if the answer was yes, it was dropped then recreated
 CREATE TABLE [MEMBERS] (
 	MemberID int NOT NULL IDENTITY(1,1),
 	MemberNumber nvarchar(75) NOT NULL, 
@@ -26,12 +26,16 @@ CREATE TABLE [MEMBERS] (
 	Joined nvarchar(50) NOT NULL,
 	[Current] nvarchar(10) NOT NULL,
 	Subscription nvarchar(25) Not Null,
-	PlanID int NOT NULL,
+	PlanID int NOT NULL
+	
   PRIMARY KEY  (MEMBERID),
    CHECK ([Current] in ('YES','NO')),
-   CHECK (Subscription in ('Monthly', 'Quarterly', 'Yearly', 'Biennial'))
+   CHECK (Subscription in ('Monthly', 'Quarterly', 'Yearly', 'Biennial')),
+   CONSTRAINT UC_MemNum UNIQUE (MemberNumber)
 )
-
+-- Members table created and has two checks one for current members as yes/no
+-- and one for checking the subscription as monthly, quarterly, yearly, biennially
+-- Member Number was made UNIQUE so they cant be duplicateed
 GO
 CREATE TABLE [ADDRESSES] (
 	AddressID int NOT NULL IDENTITY (1,1),
@@ -43,7 +47,7 @@ CREATE TABLE [ADDRESSES] (
 	AddressType nvarchar(75) NOT NULL,
   PRIMARY KEY  (AddressID)  
 )
-
+-- address table was created with address id as the primary key
 GO
 CREATE TABLE [CREDIT_CARDS] (
 	CreditCardID int NOT NULL IDENTITY(1,1),
@@ -54,6 +58,7 @@ CREATE TABLE [CREDIT_CARDS] (
 	ExpireDate nvarchar (50) NOT NULL,
    PRIMARY KEY  (CreditCardID)
 )
+-- creditd card table created with primary key as credit card id
 GO
 CREATE TABLE INTERESTS (
 	InterestID int NOT NULL IDENTITY(1,1),
@@ -63,6 +68,7 @@ CREATE TABLE INTERESTS (
 	Interest3 nvarchar(256) NOT NULL,
    PRIMARY KEY (InterestID)
 )
+-- interests table was created with interest id as primary key
 GO
 CREATE TABLE [ATTENDEES] (
 	AttendeeID int NOT NULL IDENTITY(1,1),
@@ -86,8 +92,10 @@ CREATE TABLE [TRANSACTIONS] (
 	Amount smallmoney NOT NULL,
 	CreditCardResults nvarchar(50) NOT NULL,
   PRIMARY KEY (TransactionID),
-  CHECK (CreditCardResults in ('Approved','Declined','Invalid'))
+  CHECK (CreditCardResults in ('Approved','Declined','Invalid', 'Pending'))
 )
+
+-- Transactions table has a check for credit card results as approved, declined, invalid, pending
 GO
 CREATE TABLE [PLAN_FEES] (
 	PlanID int NOT NULL IDENTITY(1,1),
@@ -102,12 +110,25 @@ CREATE TABLE [NOTES] (
 	Notes nvarchar(MAX) NOT NULL,
    PRIMARY KEY (NoteID)
 )
+GO --Members Password Table created with a primary key of PasswordID and a UNIQUE constraint
+-- on the memberID to prevent any member from being input with 2 passwords
+
+CREATE TABLE [MEMBERPASSWORD](
+	[PasswordID] int NOT NULL IDENTITY(1,1),
+	MemberID int NOT NULL, 
+	PasswordHash Nvarchar(60) NOT NULL,
+	ChangedDate date not null DEFAULT GETDATE(),
+	LoginName NVARCHAR(60) NOT NULL,
+   PRIMARY KEY (PasswordID),
+   CONSTRAINT UC_MembID UNIQUE (MemberID)
+	)
+--===========================================================
+--below are all the inserts for the above tables
+
 GO
-
-
 INSERT INTO PLAN_FEES (PymtPlans, PlanRates)
 	VALUES
-		('Monthly', 9.99),('Quarterly', 27.00),('Annually', 99.00),('Biennial',189.00)
+		('Monthly', 9.99),('Quarterly', 27.00),('Annually', 99.00),('Biennial',189.00),('FREE',0.00)
 GO
 INSERT INTO NOTES (MemberID,Notes)
 	VALUES
@@ -345,6 +366,9 @@ INSERT INTO [dbo].[TRANSACTIONS]
 				('15','43014','9.99','Invalid ')	
 
 --================Constraints==================
+
+-- below are all my foreign key additions to the above tables
+
 GO
 ALTER TABLE Notes			ADD CONSTRAINT FK_NoteMember	 FOREIGN KEY (MemberID)     REFERENCES Members(MemberID);
 ALTER TABLE Transactions	ADD CONSTRAINT FK_TransCC		 FOREIGN KEY (CreditCardID) REFERENCES Credit_Cards(CreditCardID);
@@ -354,8 +378,15 @@ ALTER TABLE Interests		ADD CONSTRAINT FK_IntrdMemb		 FOREIGN KEY (MemberID)     
 ALTER TABLE Credit_Cards	ADD CONSTRAINT FK_CCMemb		 FOREIGN KEY (MemberID)     REFERENCES Members(MemberID);
 ALTER TABLE Addresses		ADD CONSTRAINT FK_AddrMemb		 FOREIGN KEY (MemberID)     REFERENCES Members(MemberID);
 ALTER TABLE Members			ADD CONSTRAINT FK_MembPlan       FOREIGN KEY (PlanID)       REFERENCES Plan_Fees(PlanID);
+ALTER TABLE MemberPassword  ADD CONSTRAINT FK_MembPass		 FOREIGN KEY (MemberID)		REFERENCES Members(MemberID);
 
-
+--======================Updates===================================
+-- had trouble with converting the exel time to sql time. 
+-- Needed to run some update statements to allow my squence to function properly.
+-- first conversion of excel date wast to datetime, then another to data type date
+-- some other problems arose in regards to the Members, credit card, events and transaction tables
+-- so those were cast to smalldatetimt after subtraction of 2. then anothe cast to date
+-- Not 100% sure why i could not use the same syntax for all, but they work as needed for all functions
 UPDATE MEMBERS
 SET DOB = CONVERT(NVARCHAR(50),CONVERT(datetime, dob,101))
 ALTER TABLE members
@@ -412,7 +443,12 @@ ALTER TABLE TRANSACTIONS
 ALTER COLUMN TransDate DATE
 
 
---================ Views and Stored Procedures =================
+--================ Views and Stored Procedures ======================================
+--===================================================================================
+--===================================================================================
+-- view of the members contact list
+-- this view displays the concatenated full name and full mailing addresss of all members
+-- proof select statement below
 go
 CREATE VIEW MembContactList
 AS
@@ -422,21 +458,30 @@ LEFT JOIN ADDRESSES A
 ON M.MEMBERID = A.MEMBERID
 WHERE A.AddressType = 'MAILING';
 
+--select * from membcontactlist
+--===================================================================================
+--view of all the members emails  with their Concatenated first and last names
 go
 CREATE VIEW MembEmailList
 AS
 SELECT Concat(M.[FirstName] , '   ' , M.[LastName]) as [Full Name],M.[Email]
 FROM MEMBERS M;
-
+--select * from membemaillist
+--===================================================================================
+-- of the members birthday for the current month
+-- concatenated full name and month name and day
+-- select statement  for proving view below
 
 GO  
 CREATE VIEW MembersBDMonth
 AS
-select concat(lastname, ', ', firstname) [Member Name],DATEPART(dd, dob) as [DAY]
+select concat(lastname, ', ', firstname) [Member Name],DATEPART(dd, dob) as [DAY],DATENAME(MM, dob) as [MONTH]
 from Members
 where DATENAME(month, DOB) = DATENAME(month, getdate()) 
 
---select * from MembersBDMonth
+--select * from MembersBDMonth ORDER BY DAY ASC
+--===========================================================================
+-- this is a stored procedure that determins the attendance of an event
 
 go
 IF OBJECT_ID ( 'spEventAttendence', 'P' ) IS NOT NULL   
@@ -452,9 +497,12 @@ AS
 	on e.EventID = a.EventID
 	WHERE E.DateOfEvent between  @startdate and  @enddate
 	group by e.EventID, e.Title, e.DateOfEvent
-    
---execute spEventAttendence '2017-01-01','2017-03-12'
 
+-- proof below   
+--execute spEventAttendence '2017-01-01','2017-03-12'
+--==============================================================================
+
+-- stored procedure for counting the new members between for a given set of dates
 Go
 IF OBJECT_ID ( 'spNewMembers', 'P' ) IS NOT NULL   
     DROP PROCEDURE spNewMembers;  
@@ -463,13 +511,13 @@ CREATE PROCEDURE spNewMembers
     @startdate date,   
     @enddate date   
 AS   
-	Select COUNT ([MemberID]) AS [New Members]
+	Select COUNT ([MemberID]) AS [New Members],DATENAME(MM,(MAX(Joined))) 'Month'
 	FROM MEMBERS
 	WHERE Joined between  @startdate and  @enddate
-	
-	
---execute spNewMembers '2016-03-1' , '2016-03-31'
-    
+	Group By Month(Joined)
+--execute spNewMembers '2016-03-1' , '2016-04-31
+--===============================================================================
+-- veiw that shows the members ID  of expired  credit cards
 GO  
 CREATE VIEW MemberCCexpired
 AS
@@ -479,6 +527,18 @@ WHERE ExpireDate >= GETDATE()
 GO
 --select * from MemberCCexpired
 
+
+go -- this view will identify when the persons last password change was
+CREATE VIEW MemPWLastChanged
+AS
+SELECT m.MemberID, CONCAT(m.FirstName , '  ', m.LastName) [Full Name], mp.ChangedDate [PassWord Last Changed]
+FROM MEMBERPASSWORD mp
+JOIN MEMBERS m
+ON mp.MemberID = m.MemberID
+--================================================================================
+
+-- stored procedure for  calculating the monthly income from all members
+-- for a given time period
 go
 IF OBJECT_ID ( 'spMonthlyIncomeFromMemb ', 'P' ) IS NOT NULL   
     DROP PROCEDURE spMonthlyIncomeFromMemb ;  
@@ -488,10 +548,195 @@ CREATE PROCEDURE spMonthlyIncomeFromMemb
     @enddate date   
 AS   
 	
-    select sum(amount) [income]
+   select SUM(amount) [income], DATENAME(MM,(MAX(TransDate))) 'Month'
 	from TRANSACTIONS
-	where TransDate BETWEEN @startdate and @enddate;
+	where TransDate BETWEEN @startdate and @enddate
+	Group By Month (Transdate);
 
 ------execute spMonthlyIncomeFromMemb '2017-03-1' , '2017-03-31'
 
+--===================================================================================
+-- the following view was created using union all
+-- each script calculates the information for each subscription type
+-- final view results in all members whos subscription has ended for their 
+-- respective payment plans.
+go
+CREATE VIEW MembersWhoNeedToBCharged
+AS
+		select  m.joined,m.MemberID,cc.CreditCardID,PE.PlanRates, MAX(cc.ExpireDate)[Credit Card Expiration]
+		from MEMBERS m 
+		join PLAN_FEES pe
+		on m.PlanID = pe.PlanID
+		join CREDIT_CARDS cc
+		on m.MemberID = cc.MemberID
+		join TRANSACTIONS t
+		on cc.CreditCardID = t.CreditCardID
+		where m.[Current] = 'yes' and pe.PlanID = 1 and m.Subscription = 'Monthly' and 
+		(dateadd(MONTH,1,m.Joined) <= getdate())
+		and t.CreditCardResults = 'approved' and  ExpireDate !< GETDATE()	
+		group by m.memberid	, m.Joined,cc.CreditCardID,PE.PlanRates
+Union ALL
+		select  m.Joined, m.memberid,cc.CreditCardID,PE.PlanRates, MAX(cc.ExpireDate)[Credit Card Expiration]
+		from MEMBERS m 
+		join PLAN_FEES pe
+		on m.PlanID = pe.PlanID
+		join CREDIT_CARDS cc
+		on m.MemberID = cc.MemberID
+		join TRANSACTIONS t
+		on cc.CreditCardID = t.CreditCardID
+		where m.[Current] = 'yes' and pe.PlanID = 2 and m.Subscription = 'Quarterly' and 
+		(dateadd(MONTH,3,m.Joined) <= getdate())
+		and t.CreditCardResults = 'approved'	and  ExpireDate !< GETDATE()
+		group by m.memberid	, m.Joined,cc.CreditCardID,PE.PlanRates
+UNION ALL
+		select  m.Joined, m.memberid,cc.CreditCardID,PE.PlanRates, MAX(cc.ExpireDate)[Credit Card Expiration]
+		from MEMBERS m 
+		join PLAN_FEES pe
+		on m.PlanID = pe.PlanID
+		join CREDIT_CARDS cc
+		on m.MemberID = cc.MemberID
+		join TRANSACTIONS t
+		on cc.CreditCardID = t.CreditCardID
+		where m.[Current] = 'yes' and pe.PlanID = 3 and m.Subscription = 'Yearly' and
+		(dateadd(YEAR,1,m.Joined) <= getdate())
+		and t.CreditCardResults = 'approved' and  ExpireDate !< GETDATE()
+		group by m.memberid	, m.Joined,cc.CreditCardID,PE.PlanRates
+UNION All
+		select m.Joined, m.memberid,cc.CreditCardID,PE.PlanRates, MAX(cc.ExpireDate)[Credit Card Expiration]
+		from MEMBERS m 
+		join PLAN_FEES pe
+		on m.PlanID = pe.PlanID
+		join CREDIT_CARDS cc
+		on m.MemberID = cc.MemberID
+		join TRANSACTIONS t
+		on cc.CreditCardID = t.CreditCardID
+		where m.[Current] = 'yes' and pe.PlanID = 4 and m.Subscription = 'Biennial' and 
+		(dateadd(YEAR,2,m.Joined) <= getdate())
+		and t.CreditCardResults = 'approved' and  ExpireDate !< GETDATE()
+		group by m.memberid	, m.Joined,cc.CreditCardID,PE.PlanRates
+--===================================================================================
+--Select * From MembersWhoNeedToBCharged
+--This stored procedure identifies which members need to renew their suvscripions
+GO
+CREATE PROCEDURE SP_MembersWhoNeedToBCharged
+ AS
+ BEGIN
+	IF EXISTS (select * from MembersWhoNeedToBCharged)
+	BEGIN
+		INSERT INTO TRANSACTIONS( CreditCardID, TransDate, Amount,CreditCardResults)
+		VALUES (
+		
+		        (SELECT TOP 1 CreditCardID  from MembersWhoNeedToBCharged),
+				(SELECT CAST(GETDATE() AS DATE)),
+				(SELECT TOP 1 PlanRates from MembersWhoNeedToBCharged),
+				'Pending')		
+	END
+END
+--===================================================================================
+-- THIS IS THE STORED PROCEDURE THAT WILL ENCRYPT THE PASSWORDS using SHA@_512
+GO
+CREATE PROCEDURE SP_PasswordHashs
+    @MemberID int, 
+    @Password NVARCHAR(60), 
+    @LoginName NVARCHAR(60), 
+    @responseMessage NVARCHAR(250) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON
+    BEGIN TRY
+        INSERT INTO [MEMBERPASSWORD] (MemberID, PasswordHash, LoginName)
+        VALUES(@MemberID, HASHBYTES('SHA2_512', @Password), @LoginName)
 
+        SET @responseMessage='Success'
+
+    END TRY
+    BEGIN CATCH
+        SET @responseMessage=ERROR_MESSAGE() 
+    END CATCH
+END
+
+
+--===================================================================
+------THIS WORKS WITH  ABOVE STORED PROCEDURE
+------ THIS WILL ALLOW USER TO INPUT THE PASSWORD AND LOGIN INFOMATION
+go
+DECLARE @responseMessage NVARCHAR(250)
+
+EXEC SP_PasswordHashs
+	    @MemberID  = 2,
+		@Password = 'Pass123',
+		@LoginName = 'vgepp1@nih.gov',
+		@responseMessage= @responseMessage OUTPUT
+
+Select @responseMessage as ResponseMessage
+
+
+
+------SELECT *  FROM MEMBERPASSWORD
+
+--=========================================================================
+
+--THIS PROCEDURE WILL AUTHENTICATE THE USER USING AN ENCRYPTED PASSWORD
+GO
+CREATE PROCEDURE sp_LOGINS
+    @LoginName NVARCHAR(254),
+    @Password NVARCHAR(50),
+    @responseMessage NVARCHAR(250)='' OUTPUT
+AS
+BEGIN
+
+    SET NOCOUNT ON
+
+    DECLARE @PASSWORDID INT
+
+    IF EXISTS (SELECT TOP 1 PASSWORDID FROM MEMBERPASSWORD WHERE LoginName=@LoginName)
+    BEGIN
+        SET @PASSWORDID=(SELECT PASSWORDID FROM MEMBERPASSWORD 
+		WHERE LoginName=@LoginName AND PasswordHash=HASHBYTES('SHA2-512', @Password))
+
+       IF @PASSWORDID IS NOT NULL
+           SET @responseMessage='Incorrect Password'
+       ELSE 
+           SET @responseMessage='Successfully Logged In'
+   END
+       ELSE
+           SET @responseMessage='Invalid Login'
+
+END
+--===============================================================================
+go
+--THESE ARE THE TESTS FOR THE  LOGIN / PASSWORD VALIDATION
+begin
+DECLARE	@responseMessage nvarchar(250)
+
+----Correct login and password
+
+
+EXEC	sp_LOGINS
+		@LoginName = 'vgepp1@nih.gov',
+		@Password = 'Pass123',
+		@responseMessage = @responseMessage OUTPUT
+
+SELECT	@responseMessage as '@responseMessage'
+
+--Incorrect login
+EXEC	sp_LOGINS
+		@LoginName = 'vgepp1@nih.gov1', 
+		@Password = 'Pass123' ,
+		@responseMessage = @responseMessage OUTPUT
+
+SELECT	@responseMessage as '@responseMessage'
+
+--Incorrect password
+EXEC	sp_LOGINS
+		@LoginName = 'vgepp1@nih.gov' , 
+		@Password =  'password',
+		@responseMessage = @responseMessage OUTPUT
+
+SELECT	@responseMessage as '@responseMessage'
+
+end
+
+
+
+--CREATE LOGIN <login_name> WITH PASSWORD = '<enterStrongPasswordHere>' MUST_CHANGE;  
